@@ -1,0 +1,40 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+        public: false
+
+    Vtinnovations\SmtpBundle\:
+        resource: '../src/'
+        exclude:
+            - '../src/ContaoManager/'
+            - '../src/DependencyInjection/'
+            - '../src/Exception/'
+            - '../src/VtinnovationsSmtpBundle.php'
+
+    Vtinnovations\SmtpBundle\Dotenv\DotenvWriter:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    Vtinnovations\SmtpBundle\Cache\CacheClearService:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+            $phpBinary: '%vtinnovations.smtp.php_binary%'
+            $processTimeout: '%vtinnovations.smtp.process_timeout%'
+
+    # Public: fetched via System::getContainer()->get() in BackendModule callback
+    Vtinnovations\SmtpBundle\Service\SmtpConfigHandler:
+        public: true
+        arguments:
+            $csrfTokenName: '%contao.csrf_token_name%'
+
+    # License verification (PAID-ONLY). Verifier = HTTP wrapper, Manager = cached state + gate,
+    # Guard = controller helper. http_client bound explicitly so we don't depend on autowire.
+    Vtinnovations\SmtpBundle\Security\LicenseVerifier:
+        arguments:
+            $client: '@http_client'
+    Vtinnovations\SmtpBundle\Security\LicenseManager:
+        public: true
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+    Vtinnovations\SmtpBundle\Security\LicenseGuard: ~
