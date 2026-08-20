@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * SMTP Konfigurator
+ *
+ * Package: vtinnovations/smtp-bundle
+ * Copyright: VT Innovations Team
+ * Licence: LGPL-3.0-or-later
+ * Website: https://github.com/vtinnovations/smtp-bundle
+ */
+
 declare(strict_types=1);
 
 namespace Vtinnovations\SmtpBundle\Cache;
@@ -8,6 +17,8 @@ use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\PhpExecutableFinder;
 use Symfony\Component\Process\Process;
 use Vtinnovations\SmtpBundle\Exception\CacheClearException;
+use Vtinnovations\SmtpBundle\Exception\NotEntitledException;
+use Vtinnovations\SmtpBundle\Service\EntitlementReader;
 
 final class CacheClearService
 {
@@ -17,12 +28,19 @@ final class CacheClearService
         private readonly string $projectDir,
         private readonly string $phpBinary,
         private readonly int $processTimeout,
+        private readonly EntitlementReader $entitlement,
     ) {
         $this->maintenancePath = rtrim($projectDir, '/\\') . '/var/maintenance.html';
     }
 
     public function clearAndWarmup(): void
     {
+        // Puts the site into maintenance and spawns a console process. Not something an unentitled
+        // caller gets to trigger, however it reached here.
+        if (!$this->entitlement->isGranted()) {
+            throw new NotEntitledException('smtp.cache_clear', $this->entitlement->current()->reason);
+        }
+
         $this->enableMaintenance();
 
         try {

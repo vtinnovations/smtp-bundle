@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * SMTP Konfigurator
+ *
+ * Package: vtinnovations/smtp-bundle
+ * Copyright: VT Innovations Team
+ * Licence: LGPL-3.0-or-later
+ * Website: https://github.com/vtinnovations/smtp-bundle
+ */
+
 declare(strict_types=1);
 
 namespace Vtinnovations\SmtpBundle\DependencyInjection;
@@ -18,6 +27,7 @@ class VtinnovationsSmtpExtension extends Extension
 
         $container->setParameter('vtinnovations.smtp.php_binary', $config['php_binary']);
         $container->setParameter('vtinnovations.smtp.process_timeout', $config['process_timeout']);
+        $container->setParameter('vtinnovations.smtp.domains', $config['domains']);
 
         $loader = new YamlFileLoader($container, new FileLocator(\dirname(__DIR__, 2) . '/config'));
         $loader->load('services.yaml');

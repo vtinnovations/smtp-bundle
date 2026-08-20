@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * SMTP Konfigurator
+ *
+ * Package: vtinnovations/smtp-bundle
+ * Copyright: VT Innovations Team
+ * Licence: LGPL-3.0-or-later
+ * Website: https://github.com/vtinnovations/smtp-bundle
+ */
+
 declare(strict_types=1);
 
 namespace Vtinnovations\SmtpBundle\Command;
@@ -13,6 +22,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Vtinnovations\SmtpBundle\Dotenv\DotenvWriter;
 use Vtinnovations\SmtpBundle\Exception\CacheClearException;
 use Vtinnovations\SmtpBundle\Cache\CacheClearService;
+use Vtinnovations\SmtpBundle\Service\EntitlementReader;
 
 #[AsCommand(
     name: 'vtinnovations:smtp:disable',
@@ -23,6 +33,7 @@ final class DisableSmtpCommand extends Command
     public function __construct(
         private readonly DotenvWriter $dotenvWriter,
         private readonly CacheClearService $cacheClearService,
+        private readonly EntitlementReader $entitlement,
     ) {
         parent::__construct();
     }
@@ -40,6 +51,14 @@ final class DisableSmtpCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        // The console is a server-side entry point like any other. It resolves entitlement from the
+        // persisted verified host rather than skipping the check because there is no request.
+        if (!$this->entitlement->isGranted()) {
+            $io->error('This command is not available for this installation.');
+
+            return Command::FAILURE;
+        }
 
         $existing = $this->dotenvWriter->read('MAILER_DSN');
 

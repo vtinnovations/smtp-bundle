@@ -1,3 +1,15 @@
+parameters:
+    # Public verification keys (base64), for the rare case where an operator has to deploy a rotated
+    # key ahead of a release. Empty means "use whatever the build pinned". Public keys only — a
+    # private signing key must never appear here, and never needs to.
+    vtinnovations.smtp.verification_key: ''
+    vtinnovations.smtp.verification_key_previous: ''
+
+    # The id each key above is announced under, when the issuer publishes a label rather than the
+    # id derived from the key material. Empty means "use whatever the build pinned".
+    vtinnovations.smtp.verification_key_id: ''
+    vtinnovations.smtp.verification_key_id_previous: ''
+
 services:
     _defaults:
         autowire: true
@@ -11,6 +23,16 @@ services:
             - '../src/DependencyInjection/'
             - '../src/Exception/'
             - '../src/VtinnovationsSmtpBundle.php'
+            # Immutable results and value objects — constructed by the services that produce them,
+            # never injected.
+            - '../src/Config/DeploymentProfile.php'
+            - '../src/Http/ExchangeResult.php'
+            - '../src/Service/Entitlement.php'
+            - '../src/Service/ProvisioningOutcome.php'
+            - '../src/Service/PushOutcome.php'
+            - '../src/Support/SealedRecord.php'
+            # Instantiated by Contao as a BE_MOD callback with `new`, not by the container.
+            - '../src/Controller/Backend/'
 
     Vtinnovations\SmtpBundle\Dotenv\DotenvWriter:
         arguments:
@@ -22,19 +44,67 @@ services:
             $phpBinary: '%vtinnovations.smtp.php_binary%'
             $processTimeout: '%vtinnovations.smtp.process_timeout%'
 
-    # Public: fetched via System::getContainer()->get() in BackendModule callback
+    # Public: the backend module fetches these from the container, because Contao instantiates
+    # BE_MOD callbacks with `new` rather than through the container.
     Vtinnovations\SmtpBundle\Service\SmtpConfigHandler:
         public: true
         arguments:
             $csrfTokenName: '%contao.csrf_token_name%'
 
-    # License verification (PAID-ONLY). Verifier = HTTP wrapper, Manager = cached state + gate,
-    # Guard = controller helper. http_client bound explicitly so we don't depend on autowire.
-    Vtinnovations\SmtpBundle\Security\LicenseVerifier:
-        arguments:
-            $client: '@http_client'
-    Vtinnovations\SmtpBundle\Security\LicenseManager:
+    Vtinnovations\SmtpBundle\Service\EntitlementReader:
+        public: true
+
+    Vtinnovations\SmtpBundle\Service\ProvisioningService:
+        public: true
+
+    Vtinnovations\SmtpBundle\Service\ModuleEntrySignal:
+        public: true
+
+    # Public: Contao resolves an `input_field_callback` through System::importStatic(), which only
+    # reaches a service when the container exposes it under its class name.
+    Vtinnovations\SmtpBundle\EventListener\DataContainer\InstanceSettingsListener:
         public: true
         arguments:
+            $csrfTokenName: '%contao.csrf_token_name%'
+
+    # The settings section's activate/refresh/remove actions. Excluded from the resource glob above
+    # along with the rest of Controller/Backend/, so it is registered by hand.
+    Vtinnovations\SmtpBundle\Controller\Backend\ProvisioningActionController:
+        public: true
+        tags: ['controller.service_arguments']
+        arguments:
+            $csrfTokenName: '%contao.csrf_token_name%'
+
+    Vtinnovations\SmtpBundle\Config\HostInventory:
+        arguments:
+            $configuredDomains: '%vtinnovations.smtp.domains%'
+            $fallbackHost: '%router.request_context.host%'
+
+    Vtinnovations\SmtpBundle\Config\RuntimeState:
+        arguments:
             $projectDir: '%kernel.project_dir%'
-    Vtinnovations\SmtpBundle\Security\LicenseGuard: ~
+
+    Vtinnovations\SmtpBundle\Storage\RecordStore:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    Vtinnovations\SmtpBundle\Storage\ExchangeJournal:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    Vtinnovations\SmtpBundle\Support\TrustedKeys:
+        arguments:
+            $currentKey: '%vtinnovations.smtp.verification_key%'
+            $previousKey: '%vtinnovations.smtp.verification_key_previous%'
+            $currentKeyId: '%vtinnovations.smtp.verification_key_id%'
+            $previousKeyId: '%vtinnovations.smtp.verification_key_id_previous%'
+
+    Vtinnovations\SmtpBundle\EventListener\SignalFlushListener:
+        arguments:
+            $scopeMatcher: '@?contao.routing.scope_matcher'
+
+    # Reachable without a session by necessity: the caller is another server, and it proves itself
+    # with a signature rather than a cookie.
+    Vtinnovations\SmtpBundle\Controller\RemoteStateController:
+        public: true
+        tags: ['controller.service_arguments']

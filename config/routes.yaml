@@ -1,0 +1,8 @@
+vtinnovations_smtp_endpoints:
+    resource: '../src/Controller/RemoteStateController.php'
+    type: attribute
+
+# The settings section's own actions. Backend-scoped and admin-only — see the controller.
+vtinnovations_smtp_backend:
+    resource: '../src/Controller/Backend/ProvisioningActionController.php'
+    type: attribute

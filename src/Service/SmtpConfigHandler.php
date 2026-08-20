@@ -1,15 +1,26 @@
 <?php
 
+/*
+ * SMTP Konfigurator
+ *
+ * Package: vtinnovations/smtp-bundle
+ * Copyright: VT Innovations Team
+ * Licence: LGPL-3.0-or-later
+ * Website: https://github.com/vtinnovations/smtp-bundle
+ */
+
 declare(strict_types=1);
 
 namespace Vtinnovations\SmtpBundle\Service;
 
 use Contao\CoreBundle\Csrf\ContaoCsrfTokenManager;
+use Symfony\Contracts\Translation\TranslatorInterface;
 use Vtinnovations\SmtpBundle\Cache\CacheClearService;
 use Vtinnovations\SmtpBundle\Dotenv\DotenvWriter;
 use Vtinnovations\SmtpBundle\Exception\CacheClearException;
 use Vtinnovations\SmtpBundle\Exception\DotenvWriteException;
 use Vtinnovations\SmtpBundle\Exception\InvalidDsnException;
+use Vtinnovations\SmtpBundle\Exception\NotEntitledException;
 use Vtinnovations\SmtpBundle\Mailer\DsnBuilder;
 use Vtinnovations\SmtpBundle\Mailer\TestMailService;
 
@@ -21,6 +32,8 @@ final class SmtpConfigHandler
         private readonly DotenvWriter $dotenvWriter,
         private readonly CacheClearService $cacheClearService,
         private readonly ContaoCsrfTokenManager $csrfTokenManager,
+        private readonly TranslatorInterface $translator,
+        private readonly EntitlementReader $entitlement,
         private readonly string $csrfTokenName,
     ) {
     }
@@ -38,6 +51,12 @@ final class SmtpConfigHandler
      */
     public function handle(array $data): HandleResult
     {
+        // Asked here, at the operation, not only on the screen that usually leads to it. This method
+        // is a public service call: a hidden form is no obstacle to reaching it directly.
+        if (!$this->entitlement->isGranted()) {
+            throw new NotEntitledException('smtp.configure', $this->entitlement->current()->reason);
+        }
+
         $host = trim($data['host'] ?? '');
         $port = (int) ($data['port'] ?? 587);
         $encryption = $data['encryption'] ?? 'tls';
@@ -48,15 +67,15 @@ final class SmtpConfigHandler
 
         // Basic validation
         if ($host === '') {
-            return new HandleResult(false, 'SMTP-Host ist erforderlich.');
+            return new HandleResult(false, $this->trans('error.host_required'));
         }
 
         if ($fromEmail === '' || !filter_var($fromEmail, \FILTER_VALIDATE_EMAIL)) {
-            return new HandleResult(false, 'Gültige Absender-E-Mail-Adresse ist erforderlich.');
+            return new HandleResult(false, $this->trans('error.from_email_invalid'));
         }
 
         if ($testRecipient === '' || !filter_var($testRecipient, \FILTER_VALIDATE_EMAIL)) {
-            return new HandleResult(false, 'Gültige Test-Empfänger-Adresse ist erforderlich.');
+            return new HandleResult(false, $this->trans('error.test_recipient_invalid'));
         }
 
         // If password left blank, try to reuse existing DSN password
@@ -68,7 +87,7 @@ final class SmtpConfigHandler
         try {
             $dsn = $this->dsnBuilder->build($host, $port, $username, $password, $encryption);
         } catch (InvalidDsnException $e) {
-            return new HandleResult(false, 'Ungültige Konfiguration: ' . $e->getMessage());
+            return new HandleResult(false, $this->trans('error.invalid_config', ['%error%' => $e->getMessage()]));
         }
 
         // Test mail — must succeed before persisting
@@ -77,11 +96,10 @@ final class SmtpConfigHandler
         if (!$testResult->success) {
             return new HandleResult(
                 false,
-                \sprintf(
-                    'Test-Mail fehlgeschlagen (%.2fs): %s',
-                    $testResult->duration,
-                    $testResult->error,
-                ),
+                $this->trans('error.test_mail_failed', [
+                    '%duration%' => number_format($testResult->duration, 2),
+                    '%error%'    => $testResult->error,
+                ]),
             );
         }
 
@@ -89,7 +107,7 @@ final class SmtpConfigHandler
         try {
             $this->dotenvWriter->write('MAILER_DSN', $dsn);
         } catch (DotenvWriteException $e) {
-            return new HandleResult(false, 'Fehler beim Speichern: ' . $e->getMessage());
+            return new HandleResult(false, $this->trans('error.save_failed', ['%error%' => $e->getMessage()]));
         }
 
         // Clear cache
@@ -98,13 +116,13 @@ final class SmtpConfigHandler
         } catch (CacheClearException $e) {
             return new HandleResult(
                 false,
-                'Konfiguration gespeichert, aber Cache-Clear fehlgeschlagen. Bitte manuell leeren. Fehler: ' . $e->getMessage(),
+                $this->trans('error.cache_clear_failed', ['%error%' => $e->getMessage()]),
             );
         }
 
         return new HandleResult(
             true,
-            \sprintf('Test-Mail erfolgreich gesendet (%.2fs). Konfiguration gespeichert, Cache geleert.', $testResult->duration),
+            $this->trans('success.config_saved', ['%duration%' => number_format($testResult->duration, 2)]),
         );
     }
 
@@ -185,5 +203,10 @@ final class SmtpConfigHandler
         }
 
         return rawurldecode($parsed['pass']);
+    }
+
+    private function trans(string $key, array $params = []): string
+    {
+        return $this->translator->trans($key, $params, 'vtinnovations_smtp');
     }
 }
